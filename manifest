@@ -1,0 +1,13 @@
+appname               = fnnas.fnterm
+version               = 1.0.8
+display_name          = fnTerm 终端
+desc                  = 基于浏览器的原生 Web 终端（类 iTerm）。通过 fnOS 统一网关访问，无需暴露端口；后端使用 Python 标准库实现真实 PTY 伪终端，零第三方依赖、无需编译，不依赖 ttyd 等外部二进制。支持 xterm.js 全功能终端、自适应窗口尺寸、WebSocket 实时交互。
+source                = thirdparty
+platform              = arm
+checkport             = false
+install_dep_apps      = python312
+desktop_uidir         = ui
+desktop_applaunchname = fnnas.fnterm.Application
+maintainer            = fnTerm
+distributor           = fnTerm
+changelog             = 1.0.8 安全加固：SO_PEERCRED 校验对端进程(防本地用户绕过网关直连提权)、WebSocket Origin 校验(防CSWSH跨站劫持)、默认仅管理员、realpath 防符号链接逃逸、resize 范围约束、生产模式不泄露路径。

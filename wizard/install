@@ -1,0 +1,21 @@
+[
+    {
+        "stepTitle": "fnTerm 安装设置",
+        "items": [
+            {
+                "type": "tips",
+                "helpText": "fnTerm 提供基于浏览器的原生 Web 终端，通过 fnOS <b>统一网关</b>访问，无需对外暴露端口。<br><b style='color:#d33'>⚠️ 本应用以 root 权限运行</b>，终端内可直接执行任意系统命令（无需 sudo），请<b>务必仅授权可信管理员使用</b>。"
+            },
+            {
+                "type": "select",
+                "field": "fnterm_admin_only",
+                "label": "访问权限",
+                "initValue": "1",
+                "options": [
+                    { "label": "仅管理员可用（推荐）", "value": "1" },
+                    { "label": "所有已登录用户可用", "value": "0" }
+                ]
+            }
+        ]
+    }
+]

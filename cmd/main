@@ -1,0 +1,155 @@
+#!/bin/bash
+###############################################################################
+# fnTerm — cmd/main
+# 启停/状态管理纯原生 Python PTY 终端服务（统一网关 Unix socket 模式）
+###############################################################################
+
+PYTHON_BIN=""
+SERVER="${TRIM_APPDEST}/server/ptyserver.py"
+SOCK_PATH="${TRIM_APPDEST}/app.sock"          # 必须与 app/ui/config 的 gatewaySocket 一致
+PID_FILE="${TRIM_PKGVAR}/fnterm.pid"
+LOG_FILE="${TRIM_PKGVAR}/fnterm.log"
+
+# 网关前缀须与 app/ui/config 的 gatewayPrefix 完全一致
+export FNTERM_GATEWAY_PREFIX="/app/fnnas-fnterm"
+export FNTERM_APPNAME="fnterm"
+export FNTERM_SOCK="${SOCK_PATH}"
+export FNTERM_WEBROOT="${TRIM_APPDEST}/ui"
+export FNTERM_LOGFILE="${LOG_FILE}"           # 服务自写日志（不依赖 shell 重定向）
+export FNTERM_REQUIRE_AUTH="1"                # 生产环境强制校验网关注入的 X-Trim-* 头
+# fnterm_admin_only 来自 wizard/install（缺省按仅管理员处理，更安全）
+export FNTERM_ADMIN_ONLY="${fnterm_admin_only:-1}"
+# 安全：仅允许网关进程(nginx worker，通常 www-data)与 root 直连 socket，
+# 阻止本地任意用户伪造 X-Trim 头绕过网关直连拿 root。
+export FNTERM_PEERCRED_CHECK="1"
+_wwwuid="$(id -u www-data 2>/dev/null)"
+if [ -n "${_wwwuid}" ]; then
+    export FNTERM_ALLOW_UIDS="0,${_wwwuid}"
+else
+    export FNTERM_ALLOW_UIDS="0"
+fi
+
+log_msg() { mkdir -p "${TRIM_PKGVAR}" 2>/dev/null; echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> "${LOG_FILE}"; }
+
+check_process() { kill -0 "$1" 2>/dev/null; }
+
+# 自动探测一个可用的 python3（兼容各架构/各运行时缺失的情况）
+find_python() {
+    local cands=(
+        "/var/apps/python312/target/bin/python3"
+        "/var/apps/python311/target/bin/python3"
+        "/var/apps/python310/target/bin/python3"
+        "/var/apps/python39/target/bin/python3"
+        "/var/apps/python38/target/bin/python3"
+        "/usr/local/bin/python3"
+        "/usr/bin/python3"
+        "/bin/python3"
+    )
+    local p
+    for p in "${cands[@]}"; do
+        if [ -x "$p" ]; then echo "$p"; return 0; fi
+    done
+    # 最后兜底走 PATH
+    p="$(command -v python3 2>/dev/null)"
+    if [ -n "$p" ]; then echo "$p"; return 0; fi
+    return 1
+}
+
+status() {
+    if [ -f "${PID_FILE}" ]; then
+        pid=$(head -n1 "${PID_FILE}" | tr -d '[:space:]')
+        if [ -n "${pid}" ] && check_process "${pid}"; then
+            return 0
+        fi
+        rm -f "${PID_FILE}"
+    fi
+    return 1
+}
+
+start_process() {
+    mkdir -p "${TRIM_PKGVAR}" 2>/dev/null
+    log_msg "=== start invoked ==="
+    log_msg "APPDEST=${TRIM_APPDEST} (real: $(readlink -f "${TRIM_APPDEST}" 2>/dev/null))"
+    log_msg "PKGVAR=${TRIM_PKGVAR}  RUN_USER=${TRIM_RUN_USERNAME}  APP_USER=${TRIM_USERNAME}"
+    # target 可写性预检（网关 socket 必须建在 target）
+    if touch "${TRIM_APPDEST}/.wtest" 2>/dev/null; then
+        rm -f "${TRIM_APPDEST}/.wtest"
+        log_msg "target writable: YES"
+    else
+        log_msg "target writable: NO (无法在 target 创建 socket，将导致启动失败)"
+    fi
+
+    if status; then
+        log_msg "already running"
+        return 0
+    fi
+
+    PYTHON_BIN="$(find_python)"
+    if [ -z "${PYTHON_BIN}" ] || [ ! -x "${PYTHON_BIN}" ]; then
+        echo "未找到可用的 Python3 解释器，无法启动 fnTerm。请确认依赖 python312 已安装，或系统自带 /usr/bin/python3。" > "${TRIM_TEMP_LOGFILE}"
+        log_msg "no python3 found"
+        return 1
+    fi
+    log_msg "using python: ${PYTHON_BIN} ($(${PYTHON_BIN} --version 2>&1))"
+    if [ ! -f "${SERVER}" ]; then
+        echo "终端服务文件缺失：${SERVER}，启动失败。" > "${TRIM_TEMP_LOGFILE}"
+        log_msg "server missing: ${SERVER}"
+        return 1
+    fi
+
+    mkdir -p "${TRIM_PKGVAR}"
+    rm -f "${SOCK_PATH}"
+
+    log_msg "starting fnTerm: ${PYTHON_BIN} ${SERVER}"
+    nohup "${PYTHON_BIN}" "${SERVER}" >> "${LOG_FILE}" 2>&1 &
+    pid=$!
+    printf "%s" "${pid}" > "${PID_FILE}"
+
+    # 等待 socket 就绪（最多 5 秒）
+    c=0
+    while [ ! -S "${SOCK_PATH}" ] && [ ${c} -lt 25 ]; do
+        check_process "${pid}" || break
+        sleep 0.2
+        c=$((c+1))
+    done
+
+    if check_process "${pid}" && [ -S "${SOCK_PATH}" ]; then
+        log_msg "started pid=${pid}"
+        return 0
+    fi
+
+    echo "fnTerm 服务启动失败，请查看日志：${LOG_FILE}" > "${TRIM_TEMP_LOGFILE}"
+    log_msg "start failed; recent log:"
+    tail -n 20 "${LOG_FILE}" >> "${TRIM_TEMP_LOGFILE}" 2>/dev/null
+    rm -f "${PID_FILE}"
+    return 1
+}
+
+stop_process() {
+    if [ ! -r "${PID_FILE}" ]; then
+        rm -f "${SOCK_PATH}"
+        return 0
+    fi
+    pid=$(head -n1 "${PID_FILE}" | tr -d '[:space:]')
+    if [ -z "${pid}" ] || ! check_process "${pid}"; then
+        rm -f "${PID_FILE}" "${SOCK_PATH}"
+        return 0
+    fi
+    log_msg "stopping pid=${pid}"
+    kill -TERM "${pid}" 2>/dev/null
+    c=0
+    while check_process "${pid}" && [ ${c} -lt 10 ]; do
+        sleep 1; c=$((c+1))
+    done
+    check_process "${pid}" && kill -KILL "${pid}" 2>/dev/null
+    rm -f "${PID_FILE}" "${SOCK_PATH}"
+    log_msg "stopped"
+    return 0
+}
+
+case "$1" in
+    start)  start_process; exit $? ;;
+    stop)   stop_process;  exit 0 ;;
+    status) status && exit 0 || exit 3 ;;
+    *)      echo "usage: $0 {start|stop|status}"; exit 1 ;;
+esac

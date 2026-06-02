@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script>
+/* 关键：网关入口 URL 可能不带尾部斜杠（/app/xxx），导致相对路径资源
+   被解析到上一级（/app/vendor/...）而 404。这里注入 <base> 强制锁定基准目录。 */
+(function () {
+  var p = location.pathname.replace(/\/index\.html$/i, "").replace(/\/+$/, "");
+  document.write('<base href="' + (p || "") + '/">');
+})();
+</script>
+<title>fnTerm</title>
+<link rel="stylesheet" href="vendor/xterm.css">
+<style>
+  :root {
+    --bg: #1d1f21;
+    --bar: #2b2e33;
+    --bar-border: #3a3d42;
+    --fg: #c5c8c6;
+    --accent: #57a6ff;
+    --green: #6ac46a;
+    --red: #e06c75;
+    --amber: #e5c07b;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  #topbar {
+    height: 38px;
+    flex: 0 0 38px;
+    background: var(--bar);
+    border-bottom: 1px solid var(--bar-border);
+    display: flex;
+    align-items: center;
+    padding: 0 14px;
+    gap: 10px;
+    user-select: none;
+    -webkit-app-region: drag;
+  }
+  .dots { display: flex; gap: 8px; margin-right: 6px; }
+  .dot { width: 12px; height: 12px; border-radius: 50%; }
+  .dot.r { background: #ff5f57; }
+  .dot.y { background: #febc2e; }
+  .dot.g { background: #28c840; }
+  #title {
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: .3px;
+    color: #e6e6e6;
+  }
+  #title span { color: var(--accent); }
+  #status {
+    margin-left: auto;
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: #9aa0a6;
+  }
+  #status .led {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--amber);
+    box-shadow: 0 0 6px currentColor;
+    color: var(--amber);
+    transition: all .2s;
+  }
+  #status.online .led { background: var(--green); color: var(--green); }
+  #status.offline .led { background: var(--red); color: var(--red); }
+  .btn {
+    -webkit-app-region: no-drag;
+    cursor: pointer;
+    background: transparent;
+    border: 1px solid var(--bar-border);
+    color: var(--fg);
+    border-radius: 6px;
+    font-size: 12px;
+    padding: 4px 10px;
+    transition: all .15s;
+  }
+  .btn:hover { border-color: var(--accent); color: var(--accent); }
+  #term-wrap {
+    flex: 1 1 auto;
+    padding: 8px 10px 10px;
+    overflow: hidden;
+  }
+  #terminal { width: 100%; height: 100%; }
+  /* 自定义滚动条 */
+  .xterm-viewport::-webkit-scrollbar { width: 10px; }
+  .xterm-viewport::-webkit-scrollbar-thumb { background: #44474d; border-radius: 5px; }
+</style>
+</head>
+<body>
+  <div id="topbar">
+    <div class="dots"><i class="dot r"></i><i class="dot y"></i><i class="dot g"></i></div>
+    <div id="title">fn<span>Term</span></div>
+    <div id="status"><i class="led"></i><span id="status-text">连接中…</span></div>
+    <button class="btn" id="btn-clear" title="清屏">清屏</button>
+    <button class="btn" id="btn-reconnect" title="重新连接">重连</button>
+  </div>
+  <div id="term-wrap"><div id="terminal"></div></div>
+
+  <script src="vendor/xterm.js"></script>
+  <script src="vendor/addon-fit.js"></script>
+  <script>
+  (function () {
+    "use strict";
+
+    // ---- 计算网关前缀 ----------------------------------------------------
+    // 与 <base> 保持一致：去掉 index.html 与尾部斜杠后即为前缀目录
+    var prefix = location.pathname.replace(/\/index\.html$/i, "").replace(/\/+$/, "");
+    var wsScheme = location.protocol === "https:" ? "wss:" : "ws:";
+    var wsURL = wsScheme + "//" + location.host + prefix + "/ws";
+
+    // ---- 保底：若 xterm.js 未加载成功，直接用纯 HTML 显示错误 ----------
+    function fatal(msg) {
+      var el = document.getElementById("terminal");
+      if (el) {
+        el.innerHTML = '<div style="color:#e5c07b;font-family:monospace;'
+          + 'font-size:13px;line-height:1.6;padding:16px;white-space:pre-wrap;">'
+          + msg + '</div>';
+      }
+      try {
+        document.getElementById("status").className = "offline";
+        document.getElementById("status-text").textContent = "异常";
+      } catch (e) {}
+    }
+    if (typeof Terminal === "undefined") {
+      fatal("[fnTerm] 前端组件 xterm.js 未能加载。\n"
+        + "可能原因：静态资源被网关拦截或路径不对。\n"
+        + "当前页面路径: " + location.pathname + "\n"
+        + "尝试加载: " + prefix + "/vendor/xterm.js");
+      return;
+    }
+
+    // ---- 初始化 xterm ----------------------------------------------------
+    var term = new Terminal({
+      cursorBlink: true,
+      fontFamily: 'Menlo, Monaco, "DejaVu Sans Mono", "Courier New", monospace',
+      fontSize: 14,
+      lineHeight: 1.1,
+      scrollback: 10000,
+      allowProposedApi: true,
+      theme: {
+        background: "#1d1f21",
+        foreground: "#c5c8c6",
+        cursor: "#57a6ff",
+        cursorAccent: "#1d1f21",
+        selectionBackground: "#3a4a5e",
+        black: "#1d1f21", red: "#cc6666", green: "#b5bd68", yellow: "#f0c674",
+        blue: "#81a2be", magenta: "#b294bb", cyan: "#8abeb7", white: "#c5c8c6",
+        brightBlack: "#666666", brightRed: "#d54e53", brightGreen: "#b9ca4a",
+        brightYellow: "#e7c547", brightBlue: "#7aa6da", brightMagenta: "#c397d8",
+        brightCyan: "#70c0b1", brightWhite: "#eaeaea"
+      }
+    });
+    var fit = new FitAddon.FitAddon();
+    term.loadAddon(fit);
+    term.open(document.getElementById("terminal"));
+    fit.fit();
+
+    var statusEl = document.getElementById("status");
+    var statusText = document.getElementById("status-text");
+    function setStatus(state, text) {
+      statusEl.className = state;
+      statusText.textContent = text;
+    }
+
+    var ws = null;
+    var encoder = new TextEncoder();
+
+    function sendInput(data) {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        // 前缀 '0' = 键盘输入
+        var payload = encoder.encode("0" + data);
+        ws.send(payload);
+      }
+    }
+    function sendResize() {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        var dims = { cols: term.cols, rows: term.rows };
+        ws.send(encoder.encode("1" + JSON.stringify(dims)));
+      }
+    }
+
+    function connect() {
+      setStatus("", "连接中…");
+      ws = new WebSocket(wsURL);
+      ws.binaryType = "arraybuffer";
+
+      ws.onopen = function () {
+        setStatus("online", "已连接");
+        sendResize();
+        term.focus();
+      };
+      ws.onmessage = function (ev) {
+        if (typeof ev.data === "string") {
+          term.write(ev.data);
+        } else {
+          term.write(new Uint8Array(ev.data));
+        }
+      };
+      ws.onclose = function () {
+        setStatus("offline", "连接已断开");
+        term.write("\r\n\x1b[33m[fnTerm] 连接已断开，点击\"重连\"恢复会话。\x1b[0m\r\n");
+      };
+      ws.onerror = function () {
+        setStatus("offline", "连接错误");
+      };
+    }
+
+    // ---- 事件绑定 --------------------------------------------------------
+    term.onData(sendInput);
+
+    var resizeTimer = null;
+    function doFit() {
+      try { fit.fit(); } catch (e) {}
+      sendResize();
+    }
+    window.addEventListener("resize", function () {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(doFit, 120);
+    });
+    term.onResize(function () { sendResize(); });
+
+    document.getElementById("btn-clear").onclick = function () {
+      term.clear();
+      term.focus();
+    };
+    document.getElementById("btn-reconnect").onclick = function () {
+      if (ws) { try { ws.close(); } catch (e) {} }
+      term.reset();
+      setTimeout(connect, 150);
+    };
+
+    // 应用层心跳，保持网关连接
+    setInterval(function () {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(encoder.encode("2"));
+      }
+    }, 25000);
+
+    // 启动
+    connect();
+    setTimeout(doFit, 80);
+  })();
+  </script>
+</body>
+</html>

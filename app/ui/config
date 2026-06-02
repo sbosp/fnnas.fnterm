@@ -1,0 +1,17 @@
+{
+    ".url": {
+        "fnnas.fnterm.Application": {
+            "title": "fnTerm 终端",
+            "icon": "images/icon_{0}.png",
+            "type": "iframe",
+            "protocol": "",
+            "url": "/app/fnnas-fnterm/",
+            "allUsers": false,
+            "gatewaySocket": "app.sock",
+            "gatewayPrefix": "/app/fnnas-fnterm",
+            "control": {
+                "accessPerm": "readonly"
+            }
+        }
+    }
+}
