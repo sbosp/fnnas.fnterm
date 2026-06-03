@@ -1,5 +1,8 @@
 #!/bin/bash
 
-### This script is called after the user uninstalls the application.
+### 卸载后回调（由系统以 root 执行）
+### 清理安装时写入的 sudoers 配置，避免残留提权权限。
+
+rm -f /etc/sudoers.d/fnnas-fnterm
 
 exit 0

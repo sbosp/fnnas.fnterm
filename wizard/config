@@ -1,0 +1,31 @@
+[
+    {
+        "stepTitle": "fnTerm 设置",
+        "items": [
+            {
+                "type": "select",
+                "field": "fnterm_admin_only",
+                "label": "访问权限",
+                "initValue": "1",
+                "options": [
+                    { "label": "仅管理员可用（推荐）", "value": "1" },
+                    { "label": "所有已登录用户可用", "value": "0" }
+                ]
+            },
+            {
+                "type": "select",
+                "field": "fnterm_enable_sudo",
+                "label": "免密 sudo 提权",
+                "initValue": "1",
+                "options": [
+                    { "label": "开启：终端内可直接 sudo（免密码）", "value": "1" },
+                    { "label": "关闭：仅普通用户权限，不可提权", "value": "0" }
+                ]
+            },
+            {
+                "type": "tips",
+                "helpText": "修改后保存即时生效。开启「免密 sudo」会为应用专用用户配置 NOPASSWD sudoers；关闭则移除该配置。"
+            }
+        ]
+    }
+]

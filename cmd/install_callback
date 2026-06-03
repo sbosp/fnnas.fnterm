@@ -1,5 +1,25 @@
 #!/bin/bash
 
-### This script is called after the user installs the application.
+### 安装后回调（由系统以 root 执行）
+### 根据向导选择，为应用专用用户配置 NOPASSWD sudoers，
+### 使终端内可免密 sudo 提权（应用本体仍以 package 用户运行，权限可控）。
+
+APP_USER="${TRIM_USERNAME:-fnnas.fnterm}"
+# sudoers.d 文件名不能含 '.'（含点的文件会被 sudo 忽略），用连字符
+SUDOERS_FILE="/etc/sudoers.d/fnnas-fnterm"
+
+# fnterm_enable_sudo 来自 wizard/install；缺省 1（默认开启免密 sudo）
+if [ "${fnterm_enable_sudo:-1}" = "1" ]; then
+    # 仅当 visudo 校验通过才落盘，避免写坏 sudoers
+    TMP="$(mktemp)"
+    printf '%s ALL=(ALL) NOPASSWD: ALL\n' "${APP_USER}" > "${TMP}"
+    if visudo -cf "${TMP}" >/dev/null 2>&1; then
+        install -m 0440 -o root -g root "${TMP}" "${SUDOERS_FILE}"
+    fi
+    rm -f "${TMP}"
+else
+    # 用户选择不授予，确保清除可能残留的配置
+    rm -f "${SUDOERS_FILE}"
+fi
 
 exit 0

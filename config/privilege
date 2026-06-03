@@ -1,5 +1,7 @@
 {
     "defaults": {
-        "run-as": "root"
-    }
+        "run-as": "package"
+    },
+    "username": "fnnas.fnterm",
+    "groupname": "fnnas.fnterm"
 }

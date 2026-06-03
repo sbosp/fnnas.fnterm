@@ -1,5 +1,20 @@
 #!/bin/bash
 
-### This script is called after the user change environment variables in application setting page.
+### 配置变更后回调（由系统以 root 执行）
+### 用户在"应用设置"中切换 fnterm_enable_sudo 后，实时更新 sudoers 配置。
+
+APP_USER="${TRIM_USERNAME:-fnnas.fnterm}"
+SUDOERS_FILE="/etc/sudoers.d/fnnas-fnterm"
+
+if [ "${fnterm_enable_sudo:-1}" = "1" ]; then
+    TMP="$(mktemp)"
+    printf '%s ALL=(ALL) NOPASSWD: ALL\n' "${APP_USER}" > "${TMP}"
+    if visudo -cf "${TMP}" >/dev/null 2>&1; then
+        install -m 0440 -o root -g root "${TMP}" "${SUDOERS_FILE}"
+    fi
+    rm -f "${TMP}"
+else
+    rm -f "${SUDOERS_FILE}"
+fi
 
 exit 0

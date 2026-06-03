@@ -4,7 +4,7 @@
         "items": [
             {
                 "type": "tips",
-                "helpText": "fnTerm 提供基于浏览器的原生 Web 终端，通过 fnOS <b>统一网关</b>访问，无需对外暴露端口。<br><b style='color:#d33'>⚠️ 本应用以 root 权限运行</b>，终端内可直接执行任意系统命令（无需 sudo），请<b>务必仅授权可信管理员使用</b>。"
+                "helpText": "fnTerm 提供基于浏览器的原生 Web 终端，通过 fnOS <b>统一网关</b>访问，无需对外暴露端口。应用以专用用户身份运行（权限隔离、可控）。<br><b>安全提示：</b>终端可执行系统命令，建议仅授权可信管理员使用。"
             },
             {
                 "type": "select",
@@ -15,6 +15,20 @@
                     { "label": "仅管理员可用（推荐）", "value": "1" },
                     { "label": "所有已登录用户可用", "value": "0" }
                 ]
+            },
+            {
+                "type": "select",
+                "field": "fnterm_enable_sudo",
+                "label": "免密 sudo 提权",
+                "initValue": "1",
+                "options": [
+                    { "label": "开启：终端内可直接 sudo（免密码，推荐）", "value": "1" },
+                    { "label": "关闭：仅普通用户权限，不可提权", "value": "0" }
+                ]
+            },
+            {
+                "type": "tips",
+                "helpText": "<b>关于免密 sudo：</b>应用专用用户无登录密码，普通 sudo 会因\"密码不生效\"而失败。开启此项会为该用户配置 NOPASSWD sudoers，使你在终端内可直接 <code>sudo -i</code> 提权（无需输入密码）。卸载时会自动清除该配置。如需最小权限可关闭。"
             }
         ]
     }
