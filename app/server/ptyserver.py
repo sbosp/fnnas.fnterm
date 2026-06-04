@@ -83,6 +83,17 @@ for _p in _allow_raw.split(","):
 ALLOW_ORIGINS = set(
     o.strip().lower() for o in os.environ.get("FNTERM_ALLOW_ORIGINS", "").split(",") if o.strip()
 )
+# 打开终端时的提权模式（FNTERM_AUTO_ROOT）：
+#   "auto"  → 自动探测：若当前非 root 且免密 sudo 可用，则 sudo -i 进 root，否则普通 shell（推荐）
+#   "1"/"always" → 总是尝试 sudo -i 进 root（探测失败仍回退普通 shell，行为同 auto）
+#   "0"/"never"  → 从不自动提权，始终以专用用户打开
+# 兼容旧值：1=auto，0=never
+_ar = os.environ.get("FNTERM_AUTO_ROOT", "auto").strip().lower()
+if _ar in ("0", "never", "off", "false"):
+    AUTO_ROOT_MODE = "never"
+else:
+    # auto / 1 / always / 其它 → 统一走"探测可用则提权"
+    AUTO_ROOT_MODE = "auto"
 
 WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
@@ -274,8 +285,32 @@ def set_winsize(fd, rows, cols):
         pass
 
 
+def _sudo_nopasswd_ok():
+    """检测当前用户是否可免密 sudo（NOPASSWD）。"""
+    import subprocess
+    try:
+        # sudo -n -v：非交互校验凭证，免密可用则返回 0
+        r = subprocess.run(["sudo", "-n", "-v"],
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                            timeout=5)
+        return r.returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def _build_shell_argv():
+    """决定 PTY 子进程要 exec 的命令。
+    AUTO_ROOT_MODE="auto"：当前非 root 且免密 sudo 可用 → sudo -i 进 root 登录 shell；
+    否则（never，或探测不可用）→ 普通登录 shell。返回 (argv_list, used_root_bool)。"""
+    if AUTO_ROOT_MODE == "auto" and os.getuid() != 0 and _sudo_nopasswd_ok():
+        # sudo -i 进入 root 的登录 shell，环境由 sudo 重建（HOME=/root 等）
+        return (["sudo", "-i"], True)
+    return ([SHELL, "-l"], False)
+
+
 def run_pty_session(sock, user):
     """在已完成握手的 WebSocket 连接上跑一个 PTY 会话。"""
+    argv, used_root = _build_shell_argv()
     pid, master_fd = pty.fork()
     if pid == 0:
         # ----- 子进程：成为 shell -----
@@ -284,31 +319,36 @@ def run_pty_session(sock, user):
         env["LANG"] = env.get("LANG", "en_US.UTF-8")
         if user.get("username"):
             env["FNTERM_USER"] = str(user["username"])
-        # 以实际运行身份（root 或 package 用户）规整 shell 环境
+        # 规整当前运行身份的 shell 环境（用于普通 shell；sudo -i 会自行重建 root 环境）
         try:
             import pwd
             pw = pwd.getpwuid(os.getuid())
             env["USER"] = pw.pw_name
             env["LOGNAME"] = pw.pw_name
-            env["HOME"] = pw.pw_dir or env.get("HOME") or "/root"
+            env["HOME"] = pw.pw_dir or env.get("HOME") or "/tmp"
         except Exception:
-            env.setdefault("HOME", "/root")
-        # 补齐 PATH，确保 sbin 下的管理命令可用
+            env.setdefault("HOME", "/tmp")
+        # 补齐 PATH，确保 sudo 与 sbin 下的管理命令可用
         base_path = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
         env["PATH"] = base_path + (":" + env["PATH"] if env.get("PATH") else "")
-        home = env.get("HOME") or "/root"
+        home = env.get("HOME") or "/tmp"
         try:
             os.chdir(home)
         except OSError:
             os.chdir("/")
         try:
-            os.execvpe(SHELL, [SHELL, "-l"], env)
+            os.execvpe(argv[0], argv, env)
         except OSError:
-            os.execvpe("/bin/sh", ["/bin/sh"], env)
+            # 回退：自动提权失败则退普通 shell，仍失败再退 /bin/sh
+            try:
+                os.execvpe(SHELL, [SHELL, "-l"], env)
+            except OSError:
+                os.execvpe("/bin/sh", ["/bin/sh"], env)
         os._exit(127)
 
     # ----- 父进程：转发 -----
-    log("pty session started pid=%s user=%s" % (pid, user.get("username")))
+    log("pty session started pid=%s user=%s root=%s argv=%s"
+        % (pid, user.get("username"), used_root, " ".join(argv)))
     sock.setblocking(True)
     try:
         while True:
