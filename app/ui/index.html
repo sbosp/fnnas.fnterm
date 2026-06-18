@@ -1,257 +1,549 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<script>
-/* 关键：网关入口 URL 可能不带尾部斜杠（/app/xxx），导致相对路径资源
-   被解析到上一级（/app/vendor/...）而 404。这里注入 <base> 强制锁定基准目录。 */
-(function () {
-  var p = location.pathname.replace(/\/index\.html$/i, "").replace(/\/+$/, "");
-  document.write('<base href="' + (p || "") + '/">');
-})();
-</script>
-<title>fnTerm</title>
-<link rel="stylesheet" href="vendor/xterm.css">
-<style>
-  :root {
-    --bg: #1d1f21;
-    --bar: #2b2e33;
-    --bar-border: #3a3d42;
-    --fg: #c5c8c6;
-    --accent: #57a6ff;
-    --green: #6ac46a;
-    --red: #e06c75;
-    --amber: #e5c07b;
-  }
-  * { box-sizing: border-box; }
-  html, body { height: 100%; margin: 0; }
-  body {
-    background: var(--bg);
-    color: var(--fg);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-  }
-  #topbar {
-    height: 38px;
-    flex: 0 0 38px;
-    background: var(--bar);
-    border-bottom: 1px solid var(--bar-border);
-    display: flex;
-    align-items: center;
-    padding: 0 14px;
-    gap: 10px;
-    user-select: none;
-    -webkit-app-region: drag;
-  }
-  .dots { display: flex; gap: 8px; margin-right: 6px; }
-  .dot { width: 12px; height: 12px; border-radius: 50%; }
-  .dot.r { background: #ff5f57; }
-  .dot.y { background: #febc2e; }
-  .dot.g { background: #28c840; }
-  #title {
-    font-size: 13px;
-    font-weight: 600;
-    letter-spacing: .3px;
-    color: #e6e6e6;
-  }
-  #title span { color: var(--accent); }
-  #status {
-    margin-left: auto;
-    font-size: 12px;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    color: #9aa0a6;
-  }
-  #status .led {
-    width: 8px; height: 8px; border-radius: 50%;
-    background: var(--amber);
-    box-shadow: 0 0 6px currentColor;
-    color: var(--amber);
-    transition: all .2s;
-  }
-  #status.online .led { background: var(--green); color: var(--green); }
-  #status.offline .led { background: var(--red); color: var(--red); }
-  .btn {
-    -webkit-app-region: no-drag;
-    cursor: pointer;
-    background: transparent;
-    border: 1px solid var(--bar-border);
-    color: var(--fg);
-    border-radius: 6px;
-    font-size: 12px;
-    padding: 4px 10px;
-    transition: all .15s;
-  }
-  .btn:hover { border-color: var(--accent); color: var(--accent); }
-  #term-wrap {
-    flex: 1 1 auto;
-    padding: 8px 10px 10px;
-    overflow: hidden;
-  }
-  #terminal { width: 100%; height: 100%; }
-  /* 自定义滚动条 */
-  .xterm-viewport::-webkit-scrollbar { width: 10px; }
-  .xterm-viewport::-webkit-scrollbar-thumb { background: #44474d; border-radius: 5px; }
-</style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script>
+        (function () {
+            var p = location.pathname.replace(/\/index\.html$/i, "").replace(/\/+$/, "");
+            document.write('<base href="' + (p || "") + '/">');
+        })();
+    </script>
+    <title>fnTerm</title>
+    <link rel="stylesheet" href="vendor/xterm.css">
+    <style>
+        :root {
+            --bg: #1d1f21;
+            --bar: #2b2e33;
+            --bar-border: #3a3d42;
+            --fg: #c5c8c6;
+            --accent: #57a6ff;
+            --green: #6ac46a;
+            --red: #e06c75;
+            --amber: #e5c07b;
+            --tab-active: #3a3d42;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        html, body {
+            height: 100%;
+            margin: 0;
+            overflow: hidden;
+        }
+
+        body {
+            background: var(--bg);
+            color: var(--fg);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            display: flex;
+            flex-direction: column;
+        }
+
+        #topbar {
+            height: 38px;
+            flex: 0 0 38px;
+            background: var(--bar);
+            border-bottom: 1px solid var(--bar-border);
+            display: flex;
+            align-items: center;
+            padding: 0 14px;
+            gap: 10px;
+            user-select: none;
+            -webkit-app-region: drag;
+        }
+
+        .dots {
+            display: flex;
+            gap: 8px;
+            margin-right: 6px;
+        }
+
+        .dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+        }
+
+        .dot.r {
+            background: #ff5f57;
+        }
+
+        .dot.y {
+            background: #febc2e;
+        }
+
+        .dot.g {
+            background: #28c840;
+        }
+
+        #title {
+            font-size: 13px;
+            font-weight: 600;
+            letter-spacing: .3px;
+            color: #e6e6e6;
+        }
+
+        #title span {
+            color: var(--accent);
+        }
+
+        #status {
+            margin-left: auto;
+            font-size: 12px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            color: #9aa0a6;
+        }
+
+        #status .led {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--amber);
+            box-shadow: 0 0 6px currentColor;
+            color: var(--amber);
+            transition: all .2s;
+        }
+
+        #status.online .led {
+            background: var(--green);
+            color: var(--green);
+        }
+
+        #status.offline .led {
+            background: var(--red);
+            color: var(--red);
+        }
+
+        .btn {
+            -webkit-app-region: no-drag;
+            cursor: pointer;
+            background: transparent;
+            border: 1px solid var(--bar-border);
+            color: var(--fg);
+            border-radius: 6px;
+            font-size: 12px;
+            padding: 4px 10px;
+            transition: all .15s;
+        }
+
+        .btn:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+
+        /* ========== 横向Tab栏布局（核心修改） ========== */
+        #tabs-bar {
+            height: 36px;
+            flex: 0 0 36px;
+            background: var(--bar);
+            border-bottom: 1px solid var(--bar-border);
+            display: flex;
+            align-items: center;
+            padding: 0 8px;
+            gap: 8px;
+            -webkit-app-region: no-drag;
+        }
+
+        /* Tab滚动容器：占满剩余宽度，横向滚动 */
+        .tabs-scroll-wrap {
+            flex: 1;
+            overflow-x: auto;
+            overflow-y: hidden;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            /* 隐藏滚动条 */
+            scrollbar-width: none;
+        }
+
+        .tabs-scroll-wrap::-webkit-scrollbar {
+            height: 3px;
+        }
+
+        .tabs-scroll-wrap::-webkit-scrollbar-thumb {
+            background: #555;
+            border-radius: 3px;
+        }
+
+        /* Tab列表：横向不换行 */
+        #tabs-container {
+            display: flex;
+            gap: 4px;
+            white-space: nowrap;
+            padding: 0 4px;
+        }
+
+        /* 右侧固定按钮区域 */
+        .tabs-right-ops {
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        #new-tab-btn {
+            width: 26px;
+            height: 26px;
+            border-radius: 6px;
+            border: 1px solid var(--bar-border);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            font-size: 16px;
+            color: var(--fg);
+            transition: all .15s;
+        }
+
+        #new-tab-btn:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+
+        /* Tab标签样式 */
+        .tab-item {
+            height: 28px;
+            min-width: 110px;
+            max-width: 180px;
+            background: var(--bar);
+            border: 1px solid var(--bar-border);
+            border-bottom: none;
+            border-radius: 6px 6px 0 0;
+            padding: 0 10px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            cursor: pointer;
+            transition: all .15s;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            font-size: 12px;
+            flex-shrink: 0;
+        }
+
+        .tab-item.active {
+            background: var(--tab-active);
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+
+        .tab-item:hover {
+            background: var(--tab-active);
+        }
+
+        .tab-close {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+            color: var(--fg);
+            margin-left: 6px;
+        }
+
+        .tab-close:hover {
+            background: var(--red);
+            color: #fff;
+        }
+
+        /* 终端容器 */
+        #term-container {
+            flex: 1 1 auto;
+            overflow: hidden;
+        }
+
+        .term-wrap {
+            width: 100%;
+            height: 100%;
+            padding: 8px 10px 10px;
+            display: none;
+            overflow: hidden;
+        }
+
+        .term-wrap.active {
+            display: block;
+        }
+
+        .terminal {
+            width: 100%;
+            height: 100%;
+        }
+
+        .xterm-viewport::-webkit-scrollbar {
+            width: 10px;
+        }
+
+        .xterm-viewport::-webkit-scrollbar-thumb {
+            background: #44474d;
+            border-radius: 5px;
+        }
+    </style>
 </head>
 <body>
-  <div id="topbar">
-    <div class="dots"><i class="dot r"></i><i class="dot y"></i><i class="dot g"></i></div>
-    <div id="title">fn<span>Term</span></div>
-    <div id="status"><i class="led"></i><span id="status-text">连接中…</span></div>
-    <button class="btn" id="btn-clear" title="清屏">清屏</button>
-    <button class="btn" id="btn-reconnect" title="重新连接">重连</button>
-  </div>
-  <div id="term-wrap"><div id="terminal"></div></div>
+<!-- 横向Tab栏结构：滚动Tab区 + 右侧固定新增按钮 -->
+<div id="tabs-bar">
+    <div class="tabs-scroll-wrap">
+        <div id="tabs-container"></div>
+    </div>
+    <div class="tabs-right-ops">
+        <div id="status"><i class="led"></i><span id="status-text">连接中…</span></div>
+        <button class="btn" id="btn-clear" title="清屏">清屏</button>
+        <button class="btn" id="btn-reconnect" title="重新连接">重连</button>
+        <button id="new-tab-btn" title="新建终端标签">+</button>
+    </div>
+</div>
 
-  <script src="vendor/xterm.js"></script>
-  <script src="vendor/addon-fit.js"></script>
-  <script>
-  (function () {
-    "use strict";
+<div id="term-container"></div>
 
-    // ---- 计算网关前缀 ----------------------------------------------------
-    // 与 <base> 保持一致：去掉 index.html 与尾部斜杠后即为前缀目录
-    var prefix = location.pathname.replace(/\/index\.html$/i, "").replace(/\/+$/, "");
-    var wsScheme = location.protocol === "https:" ? "wss:" : "ws:";
-    var wsURL = wsScheme + "//" + location.host + prefix + "/ws";
+<script src="vendor/xterm.js"></script>
+<script src="vendor/addon-fit.js"></script>
+<script>
+    (function () {
+        "use strict";
+        const tabs = new Map();
+        let activeTabId = null;
+        const prefix = location.pathname.replace(/\/index\.html$/i, "").replace(/\/+$/, "");
+        const wsScheme = location.protocol === "https:" ? "wss:" : "ws:";
 
-    // ---- 保底：若 xterm.js 未加载成功，直接用纯 HTML 显示错误 ----------
-    function fatal(msg) {
-      var el = document.getElementById("terminal");
-      if (el) {
-        el.innerHTML = '<div style="color:#e5c07b;font-family:monospace;'
-          + 'font-size:13px;line-height:1.6;padding:16px;white-space:pre-wrap;">'
-          + msg + '</div>';
-      }
-      try {
-        document.getElementById("status").className = "offline";
-        document.getElementById("status-text").textContent = "异常";
-      } catch (e) {}
-    }
-    if (typeof Terminal === "undefined") {
-      fatal("[fnTerm] 前端组件 xterm.js 未能加载。\n"
-        + "可能原因：静态资源被网关拦截或路径不对。\n"
-        + "当前页面路径: " + location.pathname + "\n"
-        + "尝试加载: " + prefix + "/vendor/xterm.js");
-      return;
-    }
-
-    // ---- 初始化 xterm ----------------------------------------------------
-    var term = new Terminal({
-      cursorBlink: true,
-      fontFamily: 'Menlo, Monaco, "DejaVu Sans Mono", "Courier New", monospace',
-      fontSize: 14,
-      lineHeight: 1.1,
-      scrollback: 10000,
-      allowProposedApi: true,
-      theme: {
-        background: "#1d1f21",
-        foreground: "#c5c8c6",
-        cursor: "#57a6ff",
-        cursorAccent: "#1d1f21",
-        selectionBackground: "#3a4a5e",
-        black: "#1d1f21", red: "#cc6666", green: "#b5bd68", yellow: "#f0c674",
-        blue: "#81a2be", magenta: "#b294bb", cyan: "#8abeb7", white: "#c5c8c6",
-        brightBlack: "#666666", brightRed: "#d54e53", brightGreen: "#b9ca4a",
-        brightYellow: "#e7c547", brightBlue: "#7aa6da", brightMagenta: "#c397d8",
-        brightCyan: "#70c0b1", brightWhite: "#eaeaea"
-      }
-    });
-    var fit = new FitAddon.FitAddon();
-    term.loadAddon(fit);
-    term.open(document.getElementById("terminal"));
-    fit.fit();
-
-    var statusEl = document.getElementById("status");
-    var statusText = document.getElementById("status-text");
-    function setStatus(state, text) {
-      statusEl.className = state;
-      statusText.textContent = text;
-    }
-
-    var ws = null;
-    var encoder = new TextEncoder();
-
-    function sendInput(data) {
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        // 前缀 '0' = 键盘输入
-        var payload = encoder.encode("0" + data);
-        ws.send(payload);
-      }
-    }
-    function sendResize() {
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        var dims = { cols: term.cols, rows: term.rows };
-        ws.send(encoder.encode("1" + JSON.stringify(dims)));
-      }
-    }
-
-    function connect() {
-      setStatus("", "连接中…");
-      ws = new WebSocket(wsURL);
-      ws.binaryType = "arraybuffer";
-
-      ws.onopen = function () {
-        setStatus("online", "已连接");
-        sendResize();
-        term.focus();
-      };
-      ws.onmessage = function (ev) {
-        if (typeof ev.data === "string") {
-          term.write(ev.data);
-        } else {
-          term.write(new Uint8Array(ev.data));
+        async function closeSession(sid) {
+            try {
+                await fetch(`${prefix}/api/sessions/${sid}/close`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'}
+                });
+            } catch (e) {
+                console.error('关闭会话失败:', e);
+            }
         }
-      };
-      ws.onclose = function () {
-        setStatus("offline", "连接已断开");
-        term.write("\r\n\x1b[33m[fnTerm] 连接已断开，点击\"重连\"恢复会话。\x1b[0m\r\n");
-      };
-      ws.onerror = function () {
-        setStatus("offline", "连接错误");
-      };
-    }
 
-    // ---- 事件绑定 --------------------------------------------------------
-    term.onData(sendInput);
+        class TerminalTab {
+            constructor(sid) {
+                this.sid = sid || 'tab_' + Math.random().toString(36).substr(2, 9);
+                this.term = null;
+                this.fitAddon = new FitAddon.FitAddon();
+                this.ws = null;
+                this.resizeTimer = null;
+                this.heartbeatTimer = null;
+                this.connectTimer = null;
 
-    var resizeTimer = null;
-    function doFit() {
-      try { fit.fit(); } catch (e) {}
-      sendResize();
-    }
-    window.addEventListener("resize", function () {
-      clearTimeout(resizeTimer);
-      resizeTimer = setTimeout(doFit, 120);
-    });
-    term.onResize(function () { sendResize(); });
+                this.createTabElement();
+                this.createTermElement();
+                this.initTerminal();
+                this.connect();
+            }
 
-    document.getElementById("btn-clear").onclick = function () {
-      term.clear();
-      term.focus();
-    };
-    document.getElementById("btn-reconnect").onclick = function () {
-      if (ws) { try { ws.close(); } catch (e) {} }
-      term.reset();
-      setTimeout(connect, 150);
-    };
+            createTabElement() {
+                const tabEl = document.createElement('div');
+                tabEl.className = 'tab-item';
+                tabEl.dataset.sid = this.sid;
+                tabEl.innerHTML = `
+          <span class="tab-title">终端 ${this.sid.slice(-4)}</span>
+          <span class="tab-close">×</span>
+        `;
+                tabEl.addEventListener('click', (e) => {
+                    if (e.target.classList.contains('tab-close')) return;
+                    this.activate();
+                });
+                tabEl.querySelector('.tab-close').addEventListener('click', async (e) => {
+                    e.stopPropagation();
+                    await closeSession(this.sid);
+                    if (this.ws) this.ws.close();
+                    if (this.term) this.term.dispose();
+                    this.tabElement.remove();
+                    this.termElement.remove();
+                    tabs.delete(this.sid);
+                    if (activeTabId === this.sid) {
+                        const firstTab = Array.from(tabs.values())[0];
+                        if (firstTab) firstTab.activate();
+                        else {
+                            document.getElementById('status-text').textContent = '无活跃终端';
+                            activeTabId = null;
+                        }
+                    }
+                });
+                this.tabElement = tabEl;
+                document.getElementById('tabs-container').appendChild(tabEl);
+            }
 
-    // 应用层心跳，保持网关连接
-    setInterval(function () {
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(encoder.encode("2"));
-      }
-    }, 25000);
+            createTermElement() {
+                const termWrap = document.createElement('div');
+                termWrap.className = 'term-wrap';
+                termWrap.dataset.sid = this.sid;
+                const terminalEl = document.createElement('div');
+                terminalEl.className = 'terminal';
+                termWrap.appendChild(terminalEl);
+                this.termElement = termWrap;
+                this.terminalEl = terminalEl;
+                document.getElementById('term-container').appendChild(termWrap);
+            }
 
-    // 启动
-    connect();
-    setTimeout(doFit, 80);
-  })();
-  </script>
+            initTerminal() {
+                if (typeof Terminal === "undefined") {
+                    this.terminalEl.innerHTML = `
+            <div style="color:#e06c75;font-family:monospace;font-size:13px;line-height:1.6;padding:16px;">
+              [fnTerm] xterm.js 加载失败<br>
+              路径: ${prefix}/vendor/xterm.js
+            </div>
+          `;
+                    return;
+                }
+                this.term = new Terminal({
+                    cursorBlink: true,
+                    fontFamily: 'Menlo, Monaco, "DejaVu Sans Mono", "Courier New", monospace',
+                    fontSize: 14,
+                    lineHeight: 1.1,
+                    scrollback: 10000,
+                    allowProposedApi: true,
+                    theme: {
+                        background: "#1d1f21", foreground: "#c5c8c6", cursor: "#57a6ff",
+                        cursorAccent: "#1d1f21", selectionBackground: "#3a4a5e",
+                        black: "#1d1f21", red: "#cc6666", green: "#b5bd68", yellow: "#f0c674",
+                        blue: "#81a2be", magenta: "#b294bb", cyan: "#8abeb7", white: "#c5c8c6",
+                        brightBlack: "#666666", brightRed: "#d54e53", brightGreen: "#b9ca4a",
+                        brightYellow: "#e7c547", brightBlue: "#7aa6da", brightMagenta: "#c397d8",
+                        brightCyan: "#70c0b1", brightWhite: "#eaeaea"
+                    }
+                });
+                this.term.loadAddon(this.fitAddon);
+                this.term.open(this.terminalEl);
+                this.fitAddon.fit();
+                this.term.onData((data) => this.sendInput(data));
+                this.term.onResize(() => this.sendResize());
+                window.addEventListener('resize', () => this.handleResize());
+            }
+
+            connect() {
+                this.updateStatus('', '连接中…');
+                const wsURL = `${wsScheme}//${location.host}${prefix}/ws?sid=${this.sid}`;
+                console.log("发起WS连接：", wsURL);
+                this.ws = new WebSocket(wsURL);
+                this.ws.binaryType = "arraybuffer";
+
+                this.connectTimer = setTimeout(() => {
+                    if (this.ws.readyState === WebSocket.CONNECTING) {
+                        this.ws.close();
+                        this.updateStatus('offline', '连接超时');
+                    }
+                }, 30000);
+
+                this.ws.onopen = () => {
+                    clearTimeout(this.connectTimer);
+                    this.updateStatus('online', '已连接');
+                    this.sendResize();
+                    this.term.focus();
+                };
+                this.ws.onmessage = (ev) => {
+                    if (typeof ev.data === "string") this.term.write(ev.data);
+                    else this.term.write(new Uint8Array(ev.data));
+                };
+                this.ws.onclose = () => {
+                    clearTimeout(this.connectTimer);
+                    clearInterval(this.heartbeatTimer);
+                    this.updateStatus('offline', '连接已断开');
+                    this.term.write("\r\n\x1b[33m[fnTerm] 连接已断开，点击\"重连\"恢复会话。\x1b[0m\r\n");
+                };
+                this.ws.onerror = (e) => {
+                    clearTimeout(this.connectTimer);
+                    console.error("WS连接错误", e);
+                    this.updateStatus('offline', '连接错误');
+                };
+                this.heartbeatTimer = setInterval(() => {
+                    if (this.ws?.readyState === WebSocket.OPEN) {
+                        this.ws.send(new TextEncoder().encode("2"));
+                    }
+                }, 25000);
+            }
+
+            sendInput(data) {
+                if (this.ws?.readyState === WebSocket.OPEN) {
+                    this.ws.send(new TextEncoder().encode("0" + data));
+                }
+            }
+
+            sendResize() {
+                if (this.ws?.readyState === WebSocket.OPEN) {
+                    const dims = {cols: this.term.cols, rows: this.term.rows};
+                    this.ws.send(new TextEncoder().encode("1" + JSON.stringify(dims)));
+                }
+            }
+
+            handleResize() {
+                clearTimeout(this.resizeTimer);
+                this.resizeTimer = setTimeout(() => {
+                    try {
+                        this.fitAddon.fit();
+                    } catch (e) {
+                    }
+                    this.sendResize();
+                }, 120);
+            }
+
+            updateStatus(state, text) {
+                const statusEl = document.getElementById('status');
+                const statusText = document.getElementById('status-text');
+                this.tabElement.setAttribute('data-status', state);
+                if (activeTabId === this.sid) {
+                    statusEl.className = state;
+                    statusText.textContent = text;
+                }
+            }
+
+            activate() {
+                document.querySelectorAll('.tab-item').forEach(el => el.classList.remove('active'));
+                document.querySelectorAll('.term-wrap').forEach(el => el.classList.remove('active'));
+                this.tabElement.classList.add('active');
+                this.termElement.classList.add('active');
+                activeTabId = this.sid;
+                const statusEl = document.getElementById('status');
+                const statusText = document.getElementById('status-text');
+                statusEl.className = this.tabElement.dataset.status;
+                statusText.textContent = this.tabElement.dataset.status === '' ? '连接中…' : this.tabElement.dataset.status === 'online' ? '已连接' : '连接断开';
+                if (this.term) this.term.focus();
+            }
+
+            reconnect() {
+                if (this.ws) this.ws.close();
+                clearTimeout(this.connectTimer);
+                clearInterval(this.heartbeatTimer);
+                this.connect();
+            }
+
+            clearScreen() {
+                if (this.term) this.term.clear();
+            }
+        }
+
+        function createNewTab() {
+            const tab = new TerminalTab();
+            tabs.set(tab.sid, tab);
+            tab.activate();
+            // 新建后自动滚动到最右侧
+            const scrollWrap = document.querySelector('.tabs-scroll-wrap');
+            setTimeout(() => {
+                scrollWrap.scrollLeft = scrollWrap.scrollWidth;
+            }, 10);
+        }
+
+        document.getElementById('new-tab-btn').addEventListener('click', createNewTab);
+        document.getElementById('btn-clear').addEventListener('click', () => {
+            if (!activeTabId) return;
+            tabs.get(activeTabId).clearScreen();
+        });
+        document.getElementById('btn-reconnect').addEventListener('click', () => {
+            if (!activeTabId) return;
+            tabs.get(activeTabId).reconnect();
+        });
+
+        window.addEventListener('load', createNewTab);
+    })();
+</script>
 </body>
 </html>

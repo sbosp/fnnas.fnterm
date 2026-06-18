@@ -28,6 +28,8 @@ import sys
 import termios
 import threading
 import fcntl
+import uuid
+import time
 
 # ----------------------------------------------------------------------------
 # 配置（由环境变量注入，含本地调试默认值）
@@ -308,8 +310,8 @@ def _build_shell_argv():
     return ([SHELL, "-l"], False)
 
 
-def run_pty_session(sock, user):
-    """在已完成握手的 WebSocket 连接上跑一个 PTY 会话。"""
+def run_pty_session(sock, user, sid):
+    """在已完成握手的 WebSocket 连接上跑一个 PTY 会话（关联sid）。"""
     argv, used_root = _build_shell_argv()
     pid, master_fd = pty.fork()
     if pid == 0:
@@ -346,9 +348,13 @@ def run_pty_session(sock, user):
                 os.execvpe("/bin/sh", ["/bin/sh"], env)
         os._exit(127)
 
-    # ----- 父进程：转发 -----
-    log("pty session started pid=%s user=%s root=%s argv=%s"
-        % (pid, user.get("username"), used_root, " ".join(argv)))
+    # 父进程：注册会话到全局存储
+    session = Session(sid, pid, master_fd, user)
+    with SESSIONS_LOCK:
+        SESSIONS[sid] = session
+
+    log("pty session started sid=%s pid=%s user=%s root=%s argv=%s"
+        % (sid, pid, user.get("username"), used_root, " ".join(argv)))
     sock.setblocking(True)
     try:
         while True:
@@ -395,20 +401,47 @@ def run_pty_session(sock, user):
                 except ConnectionError:
                     break
     finally:
-        try:
-            os.close(master_fd)
-        except OSError:
-            pass
-        try:
-            os.kill(pid, signal.SIGKILL)
-        except OSError:
-            pass
-        try:
-            os.waitpid(pid, 0)
-        except OSError:
-            pass
-        log("pty session ended pid=%s" % pid)
+        # 会话结束：主动清理
+        with SESSIONS_LOCK:
+            if sid in SESSIONS:
+                SESSIONS[sid].close()
+                del SESSIONS[sid]
+        log("pty session ended sid=%s pid=%s" % (sid, pid))
 
+# 全局会话存储 + 线程锁
+SESSIONS = {}
+SESSIONS_LOCK = threading.Lock()
+
+# 会话类：封装PTY进程、文件描述符等信息
+class Session:
+    def __init__(self, sid, pid, master_fd, user):
+        self.sid = sid          # 会话唯一ID
+        self.pid = pid          # PTY进程PID
+        self.master_fd = master_fd  # PTY主文件描述符
+        self.user = user        # 会话所属用户
+        self.created_at = time.time()  # 创建时间
+        self.status = "active"  # 状态：active/closed
+
+    def close(self):
+        """主动关闭会话，清理PTY和进程"""
+        if self.status != "closed":
+            self.status = "closed"
+            # 关闭PTY文件描述符
+            try:
+                os.close(self.master_fd)
+            except OSError:
+                pass
+            # 终止PTY进程
+            try:
+                os.kill(self.pid, signal.SIGKILL)
+            except OSError:
+                pass
+            # 回收进程资源
+            try:
+                os.waitpid(self.pid, 0)
+            except OSError:
+                pass
+            log(f"session closed manually: sid={self.sid} pid={self.pid}")
 
 # ----------------------------------------------------------------------------
 # HTTP / WebSocket 请求处理
@@ -478,7 +511,46 @@ class Handler(socketserver.StreamRequestHandler):
                 self._send_http("403 Forbidden", "Forbidden: gateway auth required")
                 return
 
-            # WebSocket 升级（/ws）
+            # 解析查询参数
+            query = {}
+            if "?" in inner:
+                inner, qs = inner.split("?", 1)
+                for pair in qs.split("&"):
+                    if "=" in pair:
+                        k, v = pair.split("=", 1)
+                        query[k.strip()] = v.strip()
+
+            # ========== 新增：会话管理API ==========
+            # 1. 列出所有活跃会话: GET /api/sessions
+            if inner == "/api/sessions" and method == "GET":
+                with SESSIONS_LOCK:
+                    session_list = []
+                    for sid, sess in SESSIONS.items():
+                        session_list.append({
+                            "sid": sid,
+                            "user": sess.user.get("username"),
+                            "pid": sess.pid,
+                            "created_at": sess.created_at,
+                            "status": sess.status
+                        })
+                self._send_http("200 OK", json.dumps(session_list),
+                                ctype="application/json")
+                return
+            # 2. 关闭指定会话: POST /api/sessions/{sid}/close
+            elif inner.startswith("/api/sessions/") and inner.endswith("/close") and method == "POST":
+                sid = inner.split("/")[3]  # /api/sessions/{sid}/close → 索引3为sid
+                with SESSIONS_LOCK:
+                    if sid in SESSIONS:
+                        SESSIONS[sid].close()
+                        del SESSIONS[sid]
+                        self._send_http("200 OK", json.dumps({"ok": True, "msg": "session closed"}),
+                                        ctype="application/json")
+                    else:
+                        self._send_http("404 Not Found", json.dumps({"ok": False, "msg": "session not found"}),
+                                        ctype="application/json")
+                return
+
+            # ========== 原有WS逻辑（改造sid传递） ==========
             if inner.rstrip("/") == "/ws":
                 if headers.get("upgrade", "").lower() != "websocket":
                     self._send_http("400 Bad Request", "expected websocket upgrade")
@@ -491,6 +563,8 @@ class Handler(socketserver.StreamRequestHandler):
                 if ADMIN_ONLY and not user["isAdmin"]:
                     self._send_http("403 Forbidden", "admin only")
                     return
+                # 从查询参数获取sid，无则生成
+                sid = query.get("sid", str(uuid.uuid4()))
                 key = headers.get("sec-websocket-key", "")
                 accept = base64.b64encode(
                     hashlib.sha1((key + WS_GUID).encode()).digest()).decode()
@@ -500,7 +574,7 @@ class Handler(socketserver.StreamRequestHandler):
                         "Sec-WebSocket-Accept: %s\r\n\r\n" % accept)
                 self.wfile.write(resp.encode("latin-1"))
                 self.wfile.flush()
-                run_pty_session(self.connection, user)
+                run_pty_session(self.connection, user, sid)  # 传递sid
                 return
 
             # 健康检查

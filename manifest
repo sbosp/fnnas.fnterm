@@ -1,5 +1,5 @@
 appname               = fnnas.fnterm
-version               = 1.1.3
+version               = 1.1.4
 display_name          = fnTerm 终端
 desc                  = 基于浏览器的原生 Web 终端（类 iTerm）。通过 fnOS 统一网关访问，无需暴露端口；后端使用 Python 标准库实现真实 PTY 伪终端，零第三方依赖、无需编译，不依赖 ttyd 等外部二进制。支持 xterm.js 全功能终端、自适应窗口尺寸、WebSocket 实时交互。
 source                = thirdparty
@@ -10,4 +10,4 @@ desktop_uidir         = ui
 desktop_applaunchname = fnnas.fnterm.Application
 maintainer            = 黑马飞马
 distributor           = 黑马飞马
-changelog             = 1.1.2 修复：关闭「免密 sudo」后仍进 root 的问题。关闭时强制不自动提权(联动)，并移除 NOPASSWD sudoers；配置变更后自动重启服务使设置即时生效、终止残留 root 会话。
+changelog             = 1.1.4 增加多tab支持。
