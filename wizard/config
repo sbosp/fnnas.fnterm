@@ -14,28 +14,18 @@
             },
             {
                 "type": "select",
-                "field": "fnterm_enable_sudo",
-                "label": "免密 sudo 提权",
+                "field": "term_user_mode",
+                "label": "打开终端时的身份",
                 "initValue": "1",
                 "options": [
-                    { "label": "开启（推荐）", "value": "1" },
-                    { "label": "关闭：仅普通用户权限", "value": "0" }
-                ]
-            },
-            {
-                "type": "select",
-                "field": "fnterm_auto_root",
-                "label": "打开终端时的身份",
-                "initValue": "auto",
-                "options": [
-                    { "label": "自动探测：免密 sudo 可用则 sudo -i 进 root，否则普通 shell（推荐）", "value": "auto" },
-                    { "label": "始终尝试进入 root", "value": "1" },
-                    { "label": "从不自动提权：以专用用户打开", "value": "0" }
+                    { "label": "root用户", "value": "1" },
+                    { "label": "登录用户-访问除root外内容，可输入密码提权到root", "value": "2" },
+                    { "label": "应用用户-访问App设置允许访问的内容，不支持提权", "value": "3" }
                 ]
             },
             {
                 "type": "tips",
-                "helpText": "修改后保存即时生效。「免密 sudo」配置 NOPASSWD sudoers；「打开终端时的身份」选自动探测时，可用则自动 sudo -i 进 root，否则回退普通 shell。"
+                "helpText": "修改后保存即时生效。"
             }
         ]
     }

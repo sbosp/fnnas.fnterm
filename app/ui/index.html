@@ -266,6 +266,9 @@
             padding: 8px 10px 10px;
             display: none;
             overflow: hidden;
+            /* 新增：强制继承父级尺寸 */
+            box-sizing: border-box;
+            position: relative;
         }
 
         .term-wrap.active {
@@ -403,9 +406,9 @@
                     scrollback: 10000,
                     allowProposedApi: true,
                     theme: {
-                        background: "#1d1f21", foreground: "#c5c8c6", cursor: "#57a6ff",
-                        cursorAccent: "#1d1f21", selectionBackground: "#3a4a5e",
-                        black: "#1d1f21", red: "#cc6666", green: "#b5bd68", yellow: "#f0c674",
+                        background: "#000000", foreground: "#00ff24", cursor: "#bbbbbb",
+                        cursorAccent: "#ffffff", selectionBackground: "#3a4a5e",
+                        black: "#000000", red: "#cc6666", green: "#b5bd68", yellow: "#f0c674",
                         blue: "#81a2be", magenta: "#b294bb", cyan: "#8abeb7", white: "#c5c8c6",
                         brightBlack: "#666666", brightRed: "#d54e53", brightGreen: "#b9ca4a",
                         brightYellow: "#e7c547", brightBlue: "#7aa6da", brightMagenta: "#c397d8",
@@ -414,7 +417,16 @@
                 });
                 this.term.loadAddon(this.fitAddon);
                 this.term.open(this.terminalEl);
-                this.fitAddon.fit();
+
+                // 关键修改1：延迟执行fit，确保容器尺寸已计算
+                setTimeout(() => {
+                    try {
+                        this.fitAddon.fit();
+                    } catch (e) {
+                        console.warn("fitAddon执行失败:", e);
+                    }
+                }, 50); // 短延迟确保DOM渲染完成
+
                 this.term.onData((data) => this.sendInput(data));
                 this.term.onResize(() => this.sendResize());
                 window.addEventListener('resize', () => this.handleResize());
@@ -479,8 +491,11 @@
                 clearTimeout(this.resizeTimer);
                 this.resizeTimer = setTimeout(() => {
                     try {
+                        // 关键修改3：先强制刷新布局再fit
+                        this.termElement.style.display = 'block'; // 确保容器可见
                         this.fitAddon.fit();
                     } catch (e) {
+                        console.warn("resize时fit失败:", e);
                     }
                     this.sendResize();
                 }, 120);
@@ -506,7 +521,15 @@
                 const statusText = document.getElementById('status-text');
                 statusEl.className = this.tabElement.dataset.status;
                 statusText.textContent = this.tabElement.dataset.status === '' ? '连接中…' : this.tabElement.dataset.status === 'online' ? '已连接' : '连接断开';
-                if (this.term) this.term.focus();
+
+                // 关键修改2：切换Tab时重新适配尺寸
+                if (this.term) {
+                    this.term.focus();
+                    setTimeout(() => {
+                        this.fitAddon.fit();
+                        this.sendResize(); // 同步告知服务端新的尺寸
+                    }, 30);
+                }
             }
 
             reconnect() {
@@ -542,7 +565,11 @@
             tabs.get(activeTabId).reconnect();
         });
 
-        window.addEventListener('load', createNewTab);
+        // 等待DOM完全加载后再创建第一个Tab
+        document.addEventListener('DOMContentLoaded', () => {
+            // 额外延迟确保容器尺寸稳定
+            setTimeout(createNewTab, 100);
+        });
     })();
 </script>
 </body>

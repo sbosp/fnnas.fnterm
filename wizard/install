@@ -4,7 +4,7 @@
         "items": [
             {
                 "type": "tips",
-                "helpText": "fnTerm 提供基于浏览器的原生 Web 终端，通过 fnOS <b>统一网关</b>访问，无需对外暴露端口。应用以专用用户身份运行（权限隔离、可控）。<br><b>安全提示：</b>终端可执行系统命令，建议仅授权可信管理员使用。"
+                "helpText": "fnTerm 提供基于浏览器的原生 Web 终端，通过 fnOS <b>统一网关</b>访问，无需对外暴露端口。<br><b>安全提示：</b>终端可执行系统命令，建议仅授权可信管理员使用。"
             },
             {
                 "type": "select",
@@ -18,28 +18,14 @@
             },
             {
                 "type": "select",
-                "field": "fnterm_enable_sudo",
-                "label": "免密 sudo 提权",
+                "field": "term_user_mode",
+                "label": "打开终端时的身份",
                 "initValue": "1",
                 "options": [
-                    { "label": "开启（推荐）", "value": "1" },
-                    { "label": "关闭：仅普通用户权限", "value": "0" }
+                    { "label": "root用户", "value": "1" },
+                    { "label": "登录用户-访问除root外内容，可输入密码提权到root", "value": "2" },
+                    { "label": "应用用户-访问App设置允许访问的内容，不支持提权", "value": "3" }
                 ]
-            },
-            {
-                "type": "select",
-                "field": "fnterm_auto_root",
-                "label": "打开终端时的身份",
-                "initValue": "auto",
-                "options": [
-                    { "label": "自动探测：免密 sudo 可用则直接 sudo -i 进入 root，否则普通 shell（推荐）", "value": "auto" },
-                    { "label": "始终尝试进入 root", "value": "1" },
-                    { "label": "从不自动提权：始终以专用用户打开", "value": "0" }
-                ]
-            },
-            {
-                "type": "tips",
-                "helpText": "<b>说明：</b>应用专用用户无登录密码，因此 <code>su</code>/普通 <code>sudo</code> 都会提示密码错误。开启「免密 sudo」会为该用户配置 NOPASSWD sudoers。<br>「打开终端时的身份」选<b>自动探测</b>时：终端启动会先检测免密 sudo 是否可用，可用则自动 <code>sudo -i</code> 进入 root（打开即 root，无需任何命令），不可用则安全回退到普通 shell（不会卡住）。卸载时自动清除 sudoers 配置。"
             }
         ]
     }

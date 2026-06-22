@@ -5,20 +5,7 @@
 ### 2) 重启 fnTerm 服务，使新的提权设置(FNTERM_AUTO_ROOT/ENABLE_SUDO)立即生效，
 ###    并终止可能残留的旧 root 会话。
 
-APP_USER="${TRIM_USERNAME:-fnnas.fnterm}"
-SUDOERS_FILE="/etc/sudoers.d/fnnas-fnterm"
-
-if [ "${fnterm_enable_sudo:-1}" = "1" ]; then
-    TMP="$(mktemp)"
-    printf '%s ALL=(ALL) NOPASSWD: ALL\n' "${APP_USER}" > "${TMP}"
-    if visudo -cf "${TMP}" >/dev/null 2>&1; then
-        install -m 0440 -o root -g root "${TMP}" "${SUDOERS_FILE}"
-    fi
-    rm -f "${TMP}"
-else
-    # 关闭免密提权：移除 sudoers，确保 sudo -i 不再免密成功
-    rm -f "${SUDOERS_FILE}"
-fi
+rm -f /etc/sudoers.d/fnnas-fnterm
 
 # 重启服务，使配置即时生效（cmd/main 与本脚本同目录）
 MAIN="$(dirname "$0")/main"

@@ -19,13 +19,9 @@ export FNTERM_LOGFILE="${LOG_FILE}"           # 服务自写日志（不依赖 s
 export FNTERM_REQUIRE_AUTH="1"                # 生产环境强制校验网关注入的 X-Trim-* 头
 # fnterm_admin_only 来自 wizard/install（缺省按仅管理员处理，更安全）
 export FNTERM_ADMIN_ONLY="${fnterm_admin_only:-1}"
-# fnterm_auto_root：打开终端时的身份。auto=探测免密sudo可用则进root；1=总是；0=从不。缺省 auto。
-# 联动：若免密 sudo 被关闭(fnterm_enable_sudo=0)，强制 never，绝不自动提权。
-if [ "${fnterm_enable_sudo:-1}" = "0" ]; then
-    export FNTERM_AUTO_ROOT="0"
-else
-    export FNTERM_AUTO_ROOT="${fnterm_auto_root:-auto}"
-fi
+# term_user_mode 来自 wizard/install（缺省按root处理）
+export TERM_USER_MODE="${term_user_mode:-1}"
+
 # 安全：仅允许网关进程(nginx worker，通常 www-data)与 root 直连 socket，
 # 阻止本地任意用户伪造 X-Trim 头绕过网关直连拿 root。
 export FNTERM_PEERCRED_CHECK="1"
@@ -35,6 +31,9 @@ if [ -n "${_wwwuid}" ]; then
 else
     export FNTERM_ALLOW_UIDS="0"
 fi
+
+# 删除历史版本的提权配置
+rm -f /etc/sudoers.d/fnnas-fnterm
 
 log_msg() { mkdir -p "${TRIM_PKGVAR}" 2>/dev/null; echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> "${LOG_FILE}"; }
 

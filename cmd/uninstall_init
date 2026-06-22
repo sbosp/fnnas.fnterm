@@ -1,5 +1,6 @@
 #!/bin/bash
 
 ### This script is called after the user uninstalls the application.
+rm -f /etc/sudoers.d/fnnas-fnterm
 
 exit 0

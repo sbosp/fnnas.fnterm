@@ -30,29 +30,30 @@ import threading
 import fcntl
 import uuid
 import time
+import pwd
 
 # ----------------------------------------------------------------------------
 # 配置（由环境变量注入，含本地调试默认值）
 # ----------------------------------------------------------------------------
-APPNAME      = os.environ.get("FNTERM_APPNAME", "fnterm")
+APPNAME = os.environ.get("FNTERM_APPNAME", "fnterm")
 GATEWAY_PREFIX = os.environ.get("FNTERM_GATEWAY_PREFIX", "/app/fnterm").rstrip("/")
-SOCK_PATH    = os.environ.get("FNTERM_SOCK", os.path.join(os.getcwd(), "app.sock"))
-TCP_PORT     = os.environ.get("FNTERM_TCP_PORT")          # 仅本地调试用
+SOCK_PATH = os.environ.get("FNTERM_SOCK", os.path.join(os.getcwd(), "app.sock"))
+TCP_PORT = os.environ.get("FNTERM_TCP_PORT")  # 仅本地调试用
 
 
 def _resolve_webroot():
     """解析网页根目录。优先用环境变量；否则在多个候选路径中探测含 index.html 的目录。
     兼容不同解包布局：target/ui、target/../ui、与脚本同级等。"""
-    here = os.path.dirname(os.path.abspath(__file__))   # .../target/server
+    here = os.path.dirname(os.path.abspath(__file__))  # .../target/server
     candidates = []
     env = os.environ.get("FNTERM_WEBROOT")
     if env:
         candidates.append(env)
     candidates += [
-        os.path.join(here, "..", "ui"),     # target/ui  (server 的上一级下的 ui)
-        os.path.join(here, "ui"),           # target/server/ui
+        os.path.join(here, "..", "ui"),  # target/ui  (server 的上一级下的 ui)
+        os.path.join(here, "ui"),  # target/server/ui
         os.path.join(here, "..", "..", "ui"),
-        os.path.join(here, ".."),           # target 根目录直接放页面
+        os.path.join(here, ".."),  # target 根目录直接放页面
     ]
     for c in candidates:
         c = os.path.abspath(c)
@@ -62,14 +63,16 @@ def _resolve_webroot():
     return os.path.abspath(env) if env else os.path.abspath(os.path.join(here, "..", "ui"))
 
 
-WEB_ROOT     = _resolve_webroot()
+WEB_ROOT = _resolve_webroot()
 # webroot 的 realpath，用于符号链接逃逸防护
 WEB_ROOT_REAL = os.path.realpath(WEB_ROOT)
-SHELL        = os.environ.get("FNTERM_SHELL", os.environ.get("SHELL", "/bin/bash"))
+SHELL = os.environ.get("FNTERM_SHELL", os.environ.get("SHELL", "/bin/bash"))
 # 是否要求网关鉴权头（fnOS 上为 1；本地调试设 0 放行）
 REQUIRE_AUTH = os.environ.get("FNTERM_REQUIRE_AUTH", "1") == "1"
 # 仅允许管理员使用（默认 1=仅管理员；root 终端必须默认收紧）
-ADMIN_ONLY   = os.environ.get("FNTERM_ADMIN_ONLY", "1") == "1"
+ADMIN_ONLY = os.environ.get("FNTERM_ADMIN_ONLY", "1") == "1"
+# 终端运行身份：1=root 2=登录用户 3=应用用户（默认1）
+TERM_USER_MODE = os.environ.get("TERM_USER_MODE", "3")
 # 是否校验连接对端进程 UID（SO_PEERCRED）。默认开启，防止本地任意用户绕过网关直连。
 PEERCRED_CHECK = os.environ.get("FNTERM_PEERCRED_CHECK", "1") == "1"
 # 允许直连 socket 的对端 UID 白名单（逗号分隔）。默认 0(root)。
@@ -85,17 +88,6 @@ for _p in _allow_raw.split(","):
 ALLOW_ORIGINS = set(
     o.strip().lower() for o in os.environ.get("FNTERM_ALLOW_ORIGINS", "").split(",") if o.strip()
 )
-# 打开终端时的提权模式（FNTERM_AUTO_ROOT）：
-#   "auto"  → 自动探测：若当前非 root 且免密 sudo 可用，则 sudo -i 进 root，否则普通 shell（推荐）
-#   "1"/"always" → 总是尝试 sudo -i 进 root（探测失败仍回退普通 shell，行为同 auto）
-#   "0"/"never"  → 从不自动提权，始终以专用用户打开
-# 兼容旧值：1=auto，0=never
-_ar = os.environ.get("FNTERM_AUTO_ROOT", "auto").strip().lower()
-if _ar in ("0", "never", "off", "false"):
-    AUTO_ROOT_MODE = "never"
-else:
-    # auto / 1 / always / 其它 → 统一走"探测可用则提权"
-    AUTO_ROOT_MODE = "auto"
 
 WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
@@ -104,11 +96,11 @@ LOGFILE = os.environ.get("FNTERM_LOGFILE", "")
 
 MIME = {
     ".html": "text/html; charset=utf-8",
-    ".js":   "application/javascript; charset=utf-8",
-    ".css":  "text/css; charset=utf-8",
-    ".png":  "image/png",
-    ".svg":  "image/svg+xml",
-    ".ico":  "image/x-icon",
+    ".js": "application/javascript; charset=utf-8",
+    ".css": "text/css; charset=utf-8",
+    ".png": "image/png",
+    ".svg": "image/svg+xml",
+    ".ico": "image/x-icon",
     ".json": "application/json; charset=utf-8",
     ".woff": "font/woff",
     ".woff2": "font/woff2",
@@ -179,9 +171,9 @@ def peer_allowed(sock):
         # 拿不到对端凭证时，保守起见：仅当本进程非 root 才放行；root 模式必须拒绝未知对端
         return os.getuid() != 0
     if uid == 0:
-        return True               # root（网关常以 root 主进程或同属主）
+        return True  # root（网关常以 root 主进程或同属主）
     if uid == os.getuid():
-        return True               # 与本服务同用户
+        return True  # 与本服务同用户
     return uid in ALLOW_UIDS
 
 
@@ -219,7 +211,7 @@ def ws_send(sock, payload, opcode=0x2):
     if isinstance(payload, str):
         payload = payload.encode("utf-8")
     header = bytearray()
-    header.append(0x80 | opcode)        # FIN + opcode
+    header.append(0x80 | opcode)  # FIN + opcode
     n = len(payload)
     if n < 126:
         header.append(n)
@@ -237,6 +229,7 @@ def ws_send(sock, payload, opcode=0x2):
 
 def ws_recv_frame(sock):
     """读取并解析一帧客户端数据，返回 (opcode, payload_bytes) 或 None(连接关闭)。"""
+
     def _read(n):
         buf = b""
         while len(buf) < n:
@@ -287,50 +280,70 @@ def set_winsize(fd, rows, cols):
         pass
 
 
-def _sudo_nopasswd_ok():
-    """检测当前用户是否可免密 sudo（NOPASSWD）。"""
-    import subprocess
+def _resolve_target_user(user_info):
+    """根据配置和登录信息，返回终端最终运行的系统用户pwd对象
+    user_info: 网关鉴权返回的用户字典
+    """
+
+    # 模式1：root 身份
+    if TERM_USER_MODE == "1":
+        return (['-l'], pwd.getpwuid(0))  # 改为列表
+
+    # 模式2：登录系统用户
+    if TERM_USER_MODE == "2":
+        username = user_info.get("username")
+        if username:
+            try:
+                return (['-l'], pwd.getpwnam(username))  # 空列表（无需-l，避免重复）
+            except KeyError:
+                log(f"登录用户 {username} 不存在于系统，回退到应用用户")
+
+    # 模式3：应用专属用户（默认兜底）
     try:
-        # sudo -n -v：非交互校验凭证，免密可用则返回 0
-        r = subprocess.run(["sudo", "-n", "-v"],
-                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                            timeout=5)
-        return r.returncode == 0
-    except (OSError, subprocess.SubprocessError):
-        return False
+        return ([], pwd.getpwnam(os.environ.get("TRIM_USERNAME", "fnterm")))  # 空列表
+    except KeyError:
+        log(f"应用用户不存在于系统")
+    return ([], None)  # 空列表
 
 
-def _build_shell_argv():
-    """决定 PTY 子进程要 exec 的命令。
-    AUTO_ROOT_MODE="auto"：当前非 root 且免密 sudo 可用 → sudo -i 进 root 登录 shell；
-    否则（never，或探测不可用）→ 普通登录 shell。返回 (argv_list, used_root_bool)。"""
-    if AUTO_ROOT_MODE == "auto" and os.getuid() != 0 and _sudo_nopasswd_ok():
-        # sudo -i 进入 root 的登录 shell，环境由 sudo 重建（HOME=/root 等）
-        return (["sudo", "-i"], True)
-    return ([SHELL, "-l"], False)
-
-
-def run_pty_session(sock, user, sid):
+def run_pty_session(sock, user, sid, args, target_pw):
     """在已完成握手的 WebSocket 连接上跑一个 PTY 会话（关联sid）。"""
-    argv, used_root = _build_shell_argv()
     pid, master_fd = pty.fork()
     if pid == 0:
         # ----- 子进程：成为 shell -----
         env = os.environ.copy()
         env["TERM"] = "xterm-256color"
         env["LANG"] = env.get("LANG", "en_US.UTF-8")
-        if user.get("username"):
-            env["FNTERM_USER"] = str(user["username"])
-        # 规整当前运行身份的 shell 环境（用于普通 shell；sudo -i 会自行重建 root 环境）
+        env["FNTERM_USER"] = str(user.get("username", ""))
+
+        # 当前是 root 且目标非 root → 执行降权
+        if os.getuid() == 0 and target_pw.pw_uid != 0:
+            try:
+                # 严格按 附属组→主组→UID 顺序执行，与 sshd 逻辑一致
+                os.initgroups(target_pw.pw_name, target_pw.pw_gid)
+                os.setgid(target_pw.pw_gid)
+                os.setuid(target_pw.pw_uid)
+                log(f"终端子进程降权到用户: {target_pw.pw_name} uid={target_pw.pw_uid}")
+            except OSError as e:
+                log(f"降权失败: {e}，保持当前身份运行")
+
+        # 用最终身份更新环境变量，与 SSH 登录完全对齐
+        pw = pwd.getpwuid(os.getuid())
         try:
-            import pwd
-            pw = pwd.getpwuid(os.getuid())
             env["USER"] = pw.pw_name
             env["LOGNAME"] = pw.pw_name
             env["HOME"] = pw.pw_dir or env.get("HOME") or "/tmp"
+            # 关键：如果用户原生shell是nologin/false，强制用我们指定的SHELL
+            user_shell = pw.pw_shell
+            if user_shell in ("/sbin/nologin", "/usr/sbin/nologin", "/bin/false", ""):
+                user_shell = SHELL
+            env["SHELL"] = user_shell
         except Exception:
             env.setdefault("HOME", "/tmp")
-        # 补齐 PATH，确保 sudo 与 sbin 下的管理命令可用
+            user_shell = SHELL
+            env["SHELL"] = user_shell
+
+        # 补齐 PATH
         base_path = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
         env["PATH"] = base_path + (":" + env["PATH"] if env.get("PATH") else "")
         home = env.get("HOME") or "/tmp"
@@ -338,12 +351,16 @@ def run_pty_session(sock, user, sid):
             os.chdir(home)
         except OSError:
             os.chdir("/")
+
+        # 启动 Shell：修正参数列表，避免空字符串参数
         try:
-            os.execvpe(argv[0], argv, env)
+            # 构建参数列表：shell路径 + 额外参数（列表拼接，空参数时仅保留shell路径）
+            exec_args = [user_shell] + args
+            os.execvpe(user_shell, exec_args, env)
         except OSError:
-            # 回退：自动提权失败则退普通 shell，仍失败再退 /bin/sh
+            # 回退逻辑：直接用bash启动
             try:
-                os.execvpe(SHELL, [SHELL, "-l"], env)
+                os.execvpe(SHELL, [SHELL], env)
             except OSError:
                 os.execvpe("/bin/sh", ["/bin/sh"], env)
         os._exit(127)
@@ -353,8 +370,7 @@ def run_pty_session(sock, user, sid):
     with SESSIONS_LOCK:
         SESSIONS[sid] = session
 
-    log("pty session started sid=%s pid=%s user=%s root=%s argv=%s"
-        % (sid, pid, user.get("username"), used_root, " ".join(argv)))
+    log("pty session started sid=%s pid=%s user=%s" % (sid, pid, user.get("username")))
     sock.setblocking(True)
     try:
         while True:
@@ -364,22 +380,22 @@ def run_pty_session(sock, user, sid):
                 if frame is None:
                     break
                 opcode, data = frame
-                if opcode == 0x8:                 # close
+                if opcode == 0x8:  # close
                     break
-                if opcode == 0x9:                 # ping → pong
+                if opcode == 0x9:  # ping → pong
                     ws_send(sock, data, opcode=0xA)
                     continue
-                if opcode in (0x1, 0x2):          # text / binary
+                if opcode in (0x1, 0x2):  # text / binary
                     if not data:
                         continue
                     cmd = data[0:1]
                     body = data[1:]
-                    if cmd == b"0":               # 键盘输入
+                    if cmd == b"0":  # 键盘输入
                         try:
                             os.write(master_fd, body)
                         except OSError:
                             break
-                    elif cmd == b"1":             # resize: JSON {cols,rows}
+                    elif cmd == b"1":  # resize: JSON {cols,rows}
                         try:
                             info = json.loads(body.decode("utf-8"))
                             rows = max(1, min(1000, int(info["rows"])))
@@ -387,7 +403,7 @@ def run_pty_session(sock, user, sid):
                             set_winsize(master_fd, rows, cols)
                         except (ValueError, KeyError, TypeError):
                             pass
-                    elif cmd == b"2":             # 心跳 ping（应用层）
+                    elif cmd == b"2":  # 心跳 ping（应用层）
                         pass
             if master_fd in rlist:
                 try:
@@ -408,17 +424,19 @@ def run_pty_session(sock, user, sid):
                 del SESSIONS[sid]
         log("pty session ended sid=%s pid=%s" % (sid, pid))
 
+
 # 全局会话存储 + 线程锁
 SESSIONS = {}
 SESSIONS_LOCK = threading.Lock()
 
+
 # 会话类：封装PTY进程、文件描述符等信息
 class Session:
     def __init__(self, sid, pid, master_fd, user):
-        self.sid = sid          # 会话唯一ID
-        self.pid = pid          # PTY进程PID
+        self.sid = sid  # 会话唯一ID
+        self.pid = pid  # PTY进程PID
         self.master_fd = master_fd  # PTY主文件描述符
-        self.user = user        # 会话所属用户
+        self.user = user  # 会话所属用户
         self.created_at = time.time()  # 创建时间
         self.status = "active"  # 状态：active/closed
 
@@ -442,6 +460,7 @@ class Session:
             except OSError:
                 pass
             log(f"session closed manually: sid={self.sid} pid={self.pid}")
+
 
 # ----------------------------------------------------------------------------
 # HTTP / WebSocket 请求处理
@@ -563,6 +582,10 @@ class Handler(socketserver.StreamRequestHandler):
                 if ADMIN_ONLY and not user["isAdmin"]:
                     self._send_http("403 Forbidden", "admin only")
                     return
+                (args, target_pw) = _resolve_target_user(user)
+                if target_pw is None:
+                    self._send_http("403 Forbidden", "user mode err")
+                    return
                 # 从查询参数获取sid，无则生成
                 sid = query.get("sid", str(uuid.uuid4()))
                 key = headers.get("sec-websocket-key", "")
@@ -574,7 +597,7 @@ class Handler(socketserver.StreamRequestHandler):
                         "Sec-WebSocket-Accept: %s\r\n\r\n" % accept)
                 self.wfile.write(resp.encode("latin-1"))
                 self.wfile.flush()
-                run_pty_session(self.connection, user, sid)  # 传递sid
+                run_pty_session(self.connection, user, sid, args, target_pw)  # 传递sid
                 return
 
             # 健康检查
@@ -683,5 +706,6 @@ if __name__ == "__main__":
         main()
     except Exception:
         import traceback
+
         log("FATAL boot error:\n" + traceback.format_exc())
         raise
