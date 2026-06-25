@@ -31,12 +31,13 @@ import fcntl
 import uuid
 import time
 import pwd
+from urllib.parse import urlparse, parse_qs, unquote
 
 # ----------------------------------------------------------------------------
 # 配置（由环境变量注入，含本地调试默认值）
 # ----------------------------------------------------------------------------
 APPNAME = os.environ.get("FNTERM_APPNAME", "fnterm")
-GATEWAY_PREFIX = os.environ.get("FNTERM_GATEWAY_PREFIX", "/app/fnterm").rstrip("/")
+GATEWAY_PREFIX = os.environ.get("FNTERM_GATEWAY_PREFIX", "/app/fnnas-fnterm").rstrip("/")
 SOCK_PATH = os.environ.get("FNTERM_SOCK", os.path.join(os.getcwd(), "app.sock"))
 TCP_PORT = os.environ.get("FNTERM_TCP_PORT")  # 仅本地调试用
 
@@ -326,7 +327,6 @@ def run_pty_session(sock, user, sid, args, target_pw):
                 log(f"终端子进程降权到用户: {target_pw.pw_name} uid={target_pw.pw_uid}")
             except OSError as e:
                 log(f"降权失败: {e}，保持当前身份运行")
-
         # 用最终身份更新环境变量，与 SSH 登录完全对齐
         pw = pwd.getpwuid(os.getuid())
         try:
@@ -389,38 +389,25 @@ def run_pty_session(sock, user, sid, args, target_pw):
                     if not data:
                         continue
                     cmd = data[0:1]
-                    wrapper_raw = data[1:]
-                    try:
-                        wrapper = json.loads(wrapper_raw.decode("utf-8"))
-                        req_sid = wrapper.get("sid")
-                        # 核心校验：指令sid必须等于当前ws绑定的会话sid
-                        if req_sid != sid:
-                            log(f"Discard cross-session cmd: cmd={cmd}, req_sid={req_sid}, session_sid={sid}")
-                            continue
-                        body = wrapper.get("data")
-                    except Exception as e:
-                        log(f"cmd parse fail {cmd}: {e}")
+                    req_sid = data[1:14].decode("utf-8")
+                    body = data[14:]
+
+                    if req_sid != sid:
+                        log(f"Discard cross-session cmd: cmd={cmd}, req_sid={req_sid}, session_sid={sid}")
                         continue
                     if cmd == b"0":  # 键盘输入
                         try:
-                            # 键盘输入：body 必须是数字数组
-                            if not isinstance(body, list):
-                                log("输入载荷格式错误，非字节数组")
-                                continue
-                            os.write(master_fd, bytes(body))
+                            os.write(master_fd, body)
                         except OSError:
-                            break
+                            log(f"intput err cmd={cmd}, req_sid={req_sid}, session_sid={sid}")
                     elif cmd == b"1":  # resize: JSON {cols,rows}
                         try:
-                            # 窗口调整：body 必须是行列对象
-                            if not isinstance(body, dict):
-                                log("resize载荷格式错误，非字典")
-                                continue
-                            rows = max(1, min(1000, int(body["rows"])))
-                            cols = max(1, min(1000, int(body["cols"])))
+                            info = json.loads(body.decode("utf-8"))
+                            rows = max(1, min(1000, int(info["rows"])))
+                            cols = max(1, min(1000, int(info["cols"])))
                             set_winsize(master_fd, rows, cols)
                         except (ValueError, KeyError, TypeError):
-                            pass
+                            log(f"intput err cmd={cmd}, req_sid={req_sid}, session_sid={sid}")
                     elif cmd == b"2":  # 心跳 ping（应用层）
                         pass
             if master_fd in rlist:
@@ -541,21 +528,19 @@ class Handler(socketserver.StreamRequestHandler):
             if not req:
                 return
             method, raw_path, headers = req
-            inner = strip_prefix(raw_path)
+
+            raw_path_parse = urlparse(raw_path)
+            inner = strip_prefix(unquote(raw_path_parse.path))
+            qs_raw = parse_qs(raw_path_parse.query)
+
+            query = {}
+            for k, vlist in qs_raw.items():
+                query[k] = unquote(vlist[0])
 
             user = self._auth(headers)
             if user is None:
                 self._send_http("403 Forbidden", "Forbidden: gateway auth required")
                 return
-
-            # 解析查询参数
-            query = {}
-            if "?" in inner:
-                inner, qs = inner.split("?", 1)
-                for pair in qs.split("&"):
-                    if "=" in pair:
-                        k, v = pair.split("=", 1)
-                        query[k.strip()] = v.strip()
 
             # ========== 新增：会话管理API ==========
             # 1. 列出所有活跃会话: GET /api/sessions

@@ -328,8 +328,8 @@
         }
 
         class TerminalTab {
-            constructor(sid) {
-                this.sid = sid || 'tab_' + Math.random().toString(36).substr(2, 9);
+            constructor() {
+                this.sid = 'tab_' + Math.random().toString(36).substr(2, 9);
                 this.term = null;
                 this.fitAddon = new FitAddon.FitAddon();
                 this.ws = null;
@@ -429,7 +429,6 @@
 
                 this.term.onData((data) => this.sendInput(data));
                 this.term.onResize(() => this.sendResize());
-                window.addEventListener('resize', () => this.handleResize());
             }
 
             connect() {
@@ -468,26 +467,23 @@
                     this.updateStatus('offline', '连接错误');
                 };
                 this.heartbeatTimer = setInterval(() => {
-                    this.sendCmd("2", {});
+                    this.sendCmd("2");
                 }, 25000);
             }
 
             sendInput(data) {
-                this.sendCmd("0", Array.from(data));
+                this.sendCmd("0", data);
             }
 
             sendResize() {
-                this.sendCmd("1", {cols: this.term.cols, rows: this.term.rows});
+                this.sendCmd("1", JSON.stringify({cols: this.term.cols, rows: this.term.rows}));
             }
 
             // 统一发送工具函数
             sendCmd(type, payload) {
+                console.log('发送命令', this.sid, '几点回家复活甲', this.ws)
                 if (this.ws?.readyState !== WebSocket.OPEN) return;
-                const wrapper = JSON.stringify({
-                    sid: this.sid,
-                    data: payload
-                });
-                const buf = new TextEncoder().encode(type + wrapper);
+                const buf = new TextEncoder().encode(type + this.sid + payload);
                 this.ws.send(buf);
             }
 
@@ -495,11 +491,8 @@
                 clearTimeout(this.resizeTimer);
                 this.resizeTimer = setTimeout(() => {
                     try {
-                        // 关键修改3：先强制刷新布局再fit
-                        this.termElement.style.display = 'block'; // 确保容器可见
                         this.fitAddon.fit();
                     } catch (e) {
-                        console.warn("resize时fit失败:", e);
                     }
                     this.sendResize();
                 }, 120);
@@ -573,6 +566,10 @@
         document.addEventListener('DOMContentLoaded', () => {
             // 额外延迟确保容器尺寸稳定
             setTimeout(createNewTab, 100);
+        });
+        window.addEventListener('resize', () => {
+            const active = tabs.get(activeTabId);
+            if (active) active.handleResize();
         });
     })();
 </script>
