@@ -468,23 +468,27 @@
                     this.updateStatus('offline', '连接错误');
                 };
                 this.heartbeatTimer = setInterval(() => {
-                    if (this.ws?.readyState === WebSocket.OPEN) {
-                        this.ws.send(new TextEncoder().encode("2"));
-                    }
+                    this.sendCmd("2", {});
                 }, 25000);
             }
 
             sendInput(data) {
-                if (this.ws?.readyState === WebSocket.OPEN) {
-                    this.ws.send(new TextEncoder().encode("0" + data));
-                }
+                this.sendCmd("0", Array.from(data));
             }
 
             sendResize() {
-                if (this.ws?.readyState === WebSocket.OPEN) {
-                    const dims = {cols: this.term.cols, rows: this.term.rows};
-                    this.ws.send(new TextEncoder().encode("1" + JSON.stringify(dims)));
-                }
+                this.sendCmd("1", {cols: this.term.cols, rows: this.term.rows});
+            }
+
+            // 统一发送工具函数
+            sendCmd(type, payload) {
+                if (this.ws?.readyState !== WebSocket.OPEN) return;
+                const wrapper = JSON.stringify({
+                    sid: this.sid,
+                    data: payload
+                });
+                const buf = new TextEncoder().encode(type + wrapper);
+                this.ws.send(buf);
             }
 
             handleResize() {

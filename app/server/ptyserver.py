@@ -389,17 +389,35 @@ def run_pty_session(sock, user, sid, args, target_pw):
                     if not data:
                         continue
                     cmd = data[0:1]
-                    body = data[1:]
+                    wrapper_raw = data[1:]
+                    try:
+                        wrapper = json.loads(wrapper_raw.decode("utf-8"))
+                        req_sid = wrapper.get("sid")
+                        # 核心校验：指令sid必须等于当前ws绑定的会话sid
+                        if req_sid != sid:
+                            log(f"Discard cross-session cmd: cmd={cmd}, req_sid={req_sid}, session_sid={sid}")
+                            continue
+                        body = wrapper.get("data")
+                    except Exception as e:
+                        log(f"cmd parse fail {cmd}: {e}")
+                        continue
                     if cmd == b"0":  # 键盘输入
                         try:
-                            os.write(master_fd, body)
+                            # 键盘输入：body 必须是数字数组
+                            if not isinstance(body, list):
+                                log("输入载荷格式错误，非字节数组")
+                                continue
+                            os.write(master_fd, bytes(body))
                         except OSError:
                             break
                     elif cmd == b"1":  # resize: JSON {cols,rows}
                         try:
-                            info = json.loads(body.decode("utf-8"))
-                            rows = max(1, min(1000, int(info["rows"])))
-                            cols = max(1, min(1000, int(info["cols"])))
+                            # 窗口调整：body 必须是行列对象
+                            if not isinstance(body, dict):
+                                log("resize载荷格式错误，非字典")
+                                continue
+                            rows = max(1, min(1000, int(body["rows"])))
+                            cols = max(1, min(1000, int(body["cols"])))
                             set_winsize(master_fd, rows, cols)
                         except (ValueError, KeyError, TypeError):
                             pass
