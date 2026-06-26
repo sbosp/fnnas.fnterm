@@ -58,6 +58,3 @@ python3 app/server/ptyserver.py
 - 打包前清理：`rm -rf app/server/__pycache__ app.sock *.fpk && find . -name '.DS_Store' -delete`
 - `fnpack build` 生成 `.fpk`，在设备上 `appcenter-cli install-fpk` 验证。
 
-## 许可证
-
-提交即表示你同意以 [MIT 许可证](LICENSE) 授权你的贡献。

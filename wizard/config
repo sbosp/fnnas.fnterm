@@ -18,7 +18,7 @@
                 "label": "打开终端时的身份",
                 "initValue": "1",
                 "options": [
-                    { "label": "root用户", "value": "1" },
+                    { "label": "root用户-具有设备完全访问权限谨慎选择", "value": "1" },
                     { "label": "登录用户-访问除root外内容，可输入密码提权到root", "value": "2" },
                     { "label": "应用用户-访问App设置允许访问的内容，不支持提权", "value": "3" }
                 ]

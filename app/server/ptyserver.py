@@ -282,29 +282,26 @@ def set_winsize(fd, rows, cols):
 
 
 def _resolve_target_user(user_info):
-    """根据配置和登录信息，返回终端最终运行的系统用户pwd对象
-    user_info: 网关鉴权返回的用户字典
-    """
+    """结合HTTP头和PEERCRED双重验证"""
+    if TERM_USER_MODE == "1":  # root模式
+        return ['-l'], pwd.getpwuid(0)
 
-    # 模式1：root 身份
-    if TERM_USER_MODE == "1":
-        return (['-l'], pwd.getpwuid(0))  # 改为列表
-
-    # 模式2：登录系统用户
-    if TERM_USER_MODE == "2":
-        username = user_info.get("username")
-        if username:
+    if TERM_USER_MODE == "2":  # 登录用户模式
+        target_uid = user_info.get("uid")
+        if target_uid:
             try:
-                return (['-l'], pwd.getpwnam(username))  # 空列表（无需-l，避免重复）
+                return ['-l'], pwd.getpwuid(int(target_uid))
             except KeyError:
-                log(f"登录用户 {username} 不存在于系统，回退到应用用户")
+                log(f"登录用户 {target_uid} 不存在于系统，回退到应用用户")
 
-    # 模式3：应用专属用户（默认兜底）
+    # 应用用户模式
+    app_username = os.environ.get("TRIM_USERNAME", "fnterm")
     try:
-        return ([], pwd.getpwnam(os.environ.get("TRIM_USERNAME", "fnterm")))  # 空列表
+        target_pw = pwd.getpwnam(app_username)
+        # 可选：检查peer_uid是否有权限使用这个应用用户
+        return [], target_pw
     except KeyError:
-        log(f"应用用户不存在于系统")
-    return ([], None)  # 空列表
+        return None, None
 
 
 def run_pty_session(sock, user, sid, args, target_pw):

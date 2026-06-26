@@ -467,7 +467,7 @@
                     this.updateStatus('offline', '连接错误');
                 };
                 this.heartbeatTimer = setInterval(() => {
-                    this.sendCmd("2");
+                    this.sendCmd("2", 'live');
                 }, 25000);
             }
 

@@ -184,6 +184,3 @@ A：以 root 运行的第三方应用**不可上架**应用中心，但本地手
 - [xterm.js](https://github.com/xtermjs/xterm.js) — 前端终端组件
 - [飞牛 fnOS 应用开放平台](https://developer.fnnas.com/) — 开发文档与工具链
 
-## 许可证
-
-[MIT](LICENSE) © fnTerm contributors
